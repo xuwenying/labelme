@@ -1,3 +1,6 @@
+import os
+import sys
+
 import numpy as np
 from qtpy import QtCore
 from qtpy import QtGui
@@ -70,6 +73,16 @@ class Canvas(QtWidgets.QWidget):
         # Set widget options.
         self.setMouseTracking(True)
         self.setFocusPolicy(QtCore.Qt.WheelFocus)
+
+        self.polyrnn = None
+        self.setup_polyrnn()
+
+    def setup_polyrnn(self):
+        if self.polyrnn is None:
+            os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+            sys.path.insert(0, '../../src/polyrnn-pp/src')
+            from inference import Inferencer
+            self.polyrnn = Inferencer()
 
     @property
     def createMode(self):
@@ -506,14 +519,12 @@ class Canvas(QtWidgets.QWidget):
         w, h = self.pixmap.width(), self.pixmap.height()
         return not (0 <= p.x() <= w and 0 <= p.y() <= h)
 
-    def finalise(self):
-        assert self.current
-        self.current.close()
-
+    def run_polyrnn(self):
         W = self.pixmap.width()
         H = self.pixmap.height()
         poly = np.array(
-            [(p.x(), p.y()) for p in self.current.points], dtype=np.float32,
+            [(p.x(), p.y()) for p in self.current.points],
+            dtype=np.float32,
         )
         mask = labelme.utils.polygons_to_mask((H, W), poly)
         x1, y1, x2, y2 = labelme.utils.mask_to_bbox(mask)
@@ -528,6 +539,21 @@ class Canvas(QtWidgets.QWidget):
         image = image[:, :, :3][:, :, ::-1]  # BGRA -> RGB
         image = image[y1:y2, x1:x2]
 
+        output = self.polyrnn(image)
+        points = []
+        for x, y in output['polys_ggnn'][0]:
+            max_size = max(image.shape[:2])
+            x = x1 + x * max_size
+            y = y1 + y * max_size
+            points.append(QtCore.QPoint(x, y))
+        self.current.points = points
+        self.update()
+
+    def finalise(self):
+        assert self.current
+        self.current.close()
+        if self.polyrnn:
+            self.run_polyrnn()
         self.shapes.append(self.current)
         self.storeShapes()
         self.current = None
