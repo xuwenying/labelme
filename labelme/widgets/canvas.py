@@ -1,3 +1,4 @@
+import numpy as np
 from qtpy import QtCore
 from qtpy import QtGui
 from qtpy import QtWidgets
@@ -508,6 +509,25 @@ class Canvas(QtWidgets.QWidget):
     def finalise(self):
         assert self.current
         self.current.close()
+
+        W = self.pixmap.width()
+        H = self.pixmap.height()
+        poly = np.array(
+            [(p.x(), p.y()) for p in self.current.points], dtype=np.float32,
+        )
+        mask = labelme.utils.polygons_to_mask((H, W), poly)
+        x1, y1, x2, y2 = labelme.utils.mask_to_bbox(mask)
+        poly[:, 0] /= W
+        poly[:, 1] /= H
+
+        qimage = self.pixmap.toImage()
+        C = 4  # RGBA
+        qimage = qimage.bits().asstring(H * W * C)
+        image = np.fromstring(qimage, dtype=np.uint8)
+        image = image.reshape((H, W, C))
+        image = image[:, :, :3][:, :, ::-1]  # BGRA -> RGB
+        image = image[y1:y2, x1:x2]
+
         self.shapes.append(self.current)
         self.storeShapes()
         self.current = None

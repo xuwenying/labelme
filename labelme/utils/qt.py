@@ -1,3 +1,4 @@
+import copy
 from math import sqrt
 import os.path as osp
 
